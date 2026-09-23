@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from ai_brief import explain
 from automatic import brief
 from data_registry import PROVIDERS, capabilities as active_capabilities, health_all
+from krx_market import KRXError, fetch_index
 from providers import DataError, Official, demo
 from storage import Store
 from ui_v2 import apply_theme, brand, card, empty_state, hero, source_badge
@@ -33,6 +34,7 @@ try:
         "SUPABASE_SERVICE_ROLE_KEY",
         "DATA_GO_KR_SERVICE_KEY",
         "DART_CRTFC_KEY",
+        "KRX_CRTFC_KEY",
         "OPENAI_API_KEY",
         "OPENAI_MODEL",
     ]:
@@ -319,6 +321,41 @@ def global_search():
                     run_analysis(candidate["code"])
 
 
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def krx_indices(day):
+    results = {}
+    for name in ("KOSPI", "KOSDAQ"):
+        try:
+            results[name] = fetch_index(name, day)
+        except KRXError as error:
+            results[name] = {"error": str(error)}
+    return results
+
+
+def render_krx_indices():
+    st.subheader("KRX 주요 지수 · 일별 종가")
+    if not os.getenv("KRX_CRTFC_KEY", "").strip():
+        empty_state("KRX 키 설정 필요", "KRX_CRTFC_KEY를 앱의 Secrets 또는 .env에 설정하세요.")
+        return
+    data = krx_indices(datetime.now(ZoneInfo("Asia/Seoul")).date())
+    columns = st.columns(2)
+    for col, name in zip(columns, ("KOSPI", "KOSDAQ")):
+        with col:
+            entry = data[name]
+            if "error" in entry:
+                card(name, "조회 대기", entry["error"])
+            else:
+                change = entry["change"]
+                rate = entry["rate"]
+                movement = (
+                    f" · 전일 대비 {change:+,.2f} ({rate:+.2f}%)"
+                    if change is not None and rate is not None else ""
+                )
+                card(name, f"{entry['close']:,.2f}", f"KRX · {entry['date']}{movement}")
+    st.caption("KRX Open API 기준일별 종가입니다. 장중 실시간 지수가 아닙니다.")
+
+
 def render_home():
     hero(
         "내 관심종목 대시보드",
@@ -338,6 +375,8 @@ def render_home():
         card("최근 분석", f"{len(state['runs'])}건", "이 저장 공간의 분석 기록")
     with top[2]:
         card("데이터 연결", f"{configured_count} / {len(PROVIDERS)}", "키 설정 수 · 인증 상태는 진단에서 확인")
+
+    render_krx_indices()
 
     left, right = st.columns([1.7, 1])
     with left:
@@ -410,8 +449,8 @@ def render_market():
     caps = active_capabilities()
     source_badge(f"현재 활성 Capability {len(caps)}개", "ok" if caps else "wait")
     st.markdown("")
+    render_krx_indices()
     rows = [
-        ("시장 지수", "market.index", "KOSPI·KOSDAQ 지수와 등락"),
         ("시장 폭", "market.breadth", "상승·하락 종목 수와 확산도"),
         ("거래대금", "market.turnover", "시장/종목 거래대금"),
         ("투자자 수급", "market.investor_flow", "외국인·기관·개인 순매수"),
@@ -683,7 +722,7 @@ def render_sources():
     hero("데이터 연결 관리", "기관 API의 인증·응답·사용 가능 기능을 한 곳에서 확인합니다.", "DATA SOURCES")
     st.caption("키 값 자체는 화면에 표시하지 않습니다.")
     st.info(
-        "로컬 실행: .env에 DART_CRTFC_KEY와 DATA_GO_KR_SERVICE_KEY를 입력하세요. "
+        "로컬 실행: .env에 DART_CRTFC_KEY, DATA_GO_KR_SERVICE_KEY, KRX_CRTFC_KEY를 입력하세요. "
         "Streamlit Cloud: 앱 설정의 Secrets에 같은 이름으로 등록하세요. "
         "GitHub Actions Secrets는 앱 실행 환경으로 자동 전달되지 않습니다."
     )
@@ -716,12 +755,6 @@ def render_sources():
                     st.caption(
                         f"{check['detail']} · 응답 {check['latency_ms']}ms · 확인 {check['checked_at']}"
                     )
-
-    st.subheader("추가 기관 API 슬롯")
-    empty_state(
-        "Adapter Registry 준비됨",
-        "새 기관 API는 기관명·문서·인증정보를 받으면 Capability를 분류한 뒤 독립 Adapter로 연결합니다.",
-    )
 
 
 def render_placeholder(title, subtitle, required):
