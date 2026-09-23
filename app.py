@@ -682,6 +682,11 @@ def render_ai():
 def render_sources():
     hero("데이터 연결 관리", "기관 API의 인증·응답·사용 가능 기능을 한 곳에서 확인합니다.", "DATA SOURCES")
     st.caption("키 값 자체는 화면에 표시하지 않습니다.")
+    st.info(
+        "로컬 실행: .env에 DART_CRTFC_KEY와 DATA_GO_KR_SERVICE_KEY를 입력하세요. "
+        "Streamlit Cloud: 앱 설정의 Secrets에 같은 이름으로 등록하세요. "
+        "GitHub Actions Secrets는 앱 실행 환경으로 자동 전달되지 않습니다."
+    )
 
     if st.button("전체 연결 진단", type="primary"):
         with st.spinner("기관 API 상태를 확인합니다…"):
@@ -694,8 +699,10 @@ def render_sources():
             left, right = st.columns([2, 5])
             with left:
                 st.subheader(spec.name)
+                ready = all(bool(os.getenv(key, "").strip()) for key in spec.env_keys)
+                st.caption("키 입력 상태: " + ("설정됨" if ready else "미설정"))
                 if not check:
-                    source_badge("진단 전", "wait")
+                    source_badge("인증 진단 전" if ready else "인증정보 필요", "wait")
                 elif check["status"] == "ok":
                     source_badge("정상", "ok")
                 elif check["status"] == "not_configured":
