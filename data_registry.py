@@ -8,6 +8,7 @@ from urllib.parse import unquote
 from zoneinfo import ZoneInfo
 
 import requests
+from krx_market import KRXError, fetch_index
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,12 @@ PROVIDERS = (
             "stock.business_report",
         ),
         ("DART_CRTFC_KEY",),
+    ),
+    ProviderSpec(
+        "krx",
+        "KRX 일별 지수",
+        ("market.index",),
+        ("KRX_CRTFC_KEY",),
     ),
     ProviderSpec(
         "data_go_kr_stock",
@@ -103,7 +110,18 @@ def health(spec: ProviderSpec) -> dict:
                 return _result(spec.provider_id, "ok", "연결·인증 정상", started)
             return _result(spec.provider_id, "error", f"응답코드 {code or '확인 필요'}", started)
 
+        if spec.provider_id == "krx":
+            kospi = fetch_index("KOSPI")
+            kosdaq = fetch_index("KOSDAQ")
+            return _result(
+                spec.provider_id, "ok",
+                f"일별 지수 조회 정상 · KOSPI {kospi['date']} · KOSDAQ {kosdaq['date']}",
+                started,
+            )
+
         return _result(spec.provider_id, "unknown", "진단 미구현", started)
+    except KRXError as error:
+        return _result(spec.provider_id, "error", str(error), started)
     except requests.Timeout:
         return _result(spec.provider_id, "error", "응답 시간 초과", started)
     except requests.exceptions.SSLError:
