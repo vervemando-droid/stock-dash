@@ -321,73 +321,88 @@ def global_search():
 
 def render_home():
     hero(
-        "시장을 읽고, 더 나은 판단을 만듭니다.",
-        "공시·재무·시세를 한 흐름으로 연결하고, 새 기관 API가 추가될수록 시장·수급·산업 분석이 확장됩니다.",
+        "내 관심종목 대시보드",
+        "공식 데이터로 실적과 공시를 확인합니다. 숫자의 기준일과 출처를 함께 살펴보세요.",
+        "STOCKDASH · OVERVIEW",
     )
     global_search()
 
-    st.subheader("시장 스냅샷")
-    cols = st.columns(4)
-    market_cards = [
-        ("KOSPI", "데이터 연결 필요", "market.index"),
-        ("KOSDAQ", "데이터 연결 필요", "market.index"),
-        ("외국인 수급", "데이터 연결 필요", "market.investor_flow"),
-        ("원/달러", "데이터 연결 필요", "macro.fx"),
-    ]
-    for col, (title, value, cap) in zip(cols, market_cards):
-        with col:
-            card(title, value, f"필요 Capability · {cap}")
+    configured_count = sum(
+        all(bool(os.getenv(key, "").strip()) for key in spec.env_keys)
+        for spec in PROVIDERS
+    )
+    top = st.columns(3)
+    with top[0]:
+        card("관심 종목", f"{len(state['stocks'])}개", "저장된 종목")
+    with top[1]:
+        card("최근 분석", f"{len(state['runs'])}건", "이 저장 공간의 분석 기록")
+    with top[2]:
+        card("데이터 연결", f"{configured_count} / {len(PROVIDERS)}", "키 설정 수 · 인증 상태는 진단에서 확인")
 
-    left, right = st.columns([2, 1])
+    left, right = st.columns([1.7, 1])
     with left:
         with st.container(border=True):
-            st.subheader("주요 지수 추이")
-            empty_state(
-                "시장 시계열 API 연결 대기",
-                "지수 API가 연결되면 KOSPI·KOSDAQ과 주요 시장 흐름을 이 영역에 표시합니다. 가상 지수는 넣지 않습니다.",
-            )
+            st.subheader(stock["name"] + (" · 가상 예시" if is_demo else " · " + stock["code"]))
+            if report:
+                if is_demo:
+                    st.warning("가상 예시입니다. 실존 기업·실제 시세·투자 수익률이 아닙니다.")
+                else:
+                    st.caption(
+                        f"시세 기준일: {report.get('price_date', '확인 필요')} · "
+                        f"공시 수집일: {report.get('fetched', '확인 필요')} · "
+                        f"경로: {report.get('data_route', '공식 기관 API')}"
+                    )
+                years = report.get("years", [])
+                if years:
+                    st.markdown("**주요 실적 지표 (연간 · 억원)**")
+                    chart = pd.DataFrame(
+                        [
+                            {
+                                "연도": str(row["year"]),
+                                "매출액": row.get("revenue"),
+                                "영업이익": row.get("profit"),
+                            }
+                            for row in years
+                        ]
+                    ).set_index("연도")
+                    st.bar_chart(chart, use_container_width=True)
+                    st.caption("확정 결산 기준 · 예시 화면의 수치는 모두 가상입니다." if is_demo else
+                               "DART 사업보고서 기준 · 연결/별도 구분은 종목 분석에서 확인")
+                else:
+                    empty_state("실적 자료 대기", "종목 분석을 실행하면 연간 실적을 표시합니다.")
+            else:
+                empty_state("분석된 종목이 없습니다", "종목을 검색해 시세와 공시를 연결하세요.")
+
     with right:
         with st.container(border=True):
-            st.subheader("오늘의 주요 변화")
-            if report and not is_demo:
-                notices = sorted(report.get("disclosures", []), key=lambda x: x.get("date", ""), reverse=True)
-                if notices:
-                    for item in notices[:4]:
-                        st.link_button(item["date"] + " · " + item["title"], item["url"], use_container_width=True)
-                else:
-                    st.caption("선택 종목의 최근 공시가 수집되지 않았습니다.")
+            st.subheader("최근 공시")
+            notices = sorted(
+                report.get("disclosures", []) if report and not is_demo else [],
+                key=lambda item: item.get("date", ""),
+                reverse=True,
+            )
+            if notices:
+                for item in notices[:4]:
+                    st.link_button(
+                        item["date"] + " · " + item["title"],
+                        item["url"],
+                        use_container_width=True,
+                    )
             else:
-                empty_state("종목을 검색해 시작", "검색 후 선택 종목의 최신 공시와 핵심 변화를 여기에 모읍니다.")
+                empty_state("실데이터 연결 후 표시", "선택 종목의 DART 공시가 수집되면 여기에 표시합니다.")
 
-    st.subheader("내 분석 포커스")
-    if report:
-        result = brief(report)
-        fair = result.get("fair")
-        cols = st.columns(4)
-        with cols[0]:
-            card("현재 선택", stock["name"], stock_label(stock))
-        with cols[1]:
-            card("성장", result["growth"], "확정 결산 기반")
-        with cols[2]:
-            card("가치 상태", result["value"], "역사적 배수 참고")
-        with cols[3]:
-            value = f"{fair['base']:,.0f}원" if fair else "자료 부족"
-            card("적정가 참고", value, "목표주가가 아닌 참고값")
-    else:
-        empty_state("아직 분석된 종목이 없습니다", "상단 검색에서 종목을 선택하면 기업·재무·공시 분석이 저장됩니다.")
-
-    st.subheader("확장 준비")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        card("상승률 TOP", "API 연결 대기", "market ranking")
-    with c2:
-        card("거래대금 TOP", "API 연결 대기", "market turnover")
-    with c3:
-        ai = stock.get("ai_brief", {})
-        if ai.get("status") == "ok":
-            card("AI 인사이트", "분석 준비됨", "수집 데이터 해설")
-        else:
-            card("AI 인사이트", "선택 기능", "OPENAI API 연결 시 활성화")
+        with st.container(border=True):
+            st.subheader("데이터 소스 연결 상태")
+            for spec in PROVIDERS:
+                ready = all(bool(os.getenv(key, "").strip()) for key in spec.env_keys)
+                st.markdown(f"**{spec.name}**")
+                source_badge("키 설정됨 · 인증 진단 필요" if ready else "키 설정 확인 필요",
+                             "wait")
+                st.caption(" · ".join(spec.capabilities[:2]))
+            if st.button("연결 상태 진단", use_container_width=True):
+                st.session_state.force_nav = "데이터 연결 관리"
+                st.rerun()
+            st.caption("키 값은 화면에 표시하지 않습니다.")
 
 
 def render_market():
